@@ -29,7 +29,7 @@ python3 scripts/fetch_feeds.py > /tmp/feeds.json
 
 ### 3. ダイジェストの執筆
 
-`digests/YYYY/MM/YYYY-MM-DD.md`（日付は日本時間の実行日）に、次の形式で書きます。
+`digests/YYYY/MM/DD/README.md`（日付は日本時間の実行日。例: `digests/2026/09/27/README.md`）に、次の形式で書きます。
 
 ```markdown
 # 2026-09-27 のダイジェスト

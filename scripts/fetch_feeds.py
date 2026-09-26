@@ -119,9 +119,10 @@ def parse_feed(data: bytes) -> list[dict]:
 def recent_digest_links(exclude_days: int, today: date) -> set[str]:
     """直近 exclude_days 日分のダイジェストに掲載済みのリンクを集める（重複掲載の防止用）。"""
     links: set[str] = set()
-    for path in (REPO_ROOT / "digests").glob("*/*/*.md"):
+    for path in (REPO_ROOT / "digests").glob("*/*/*/README.md"):  # digests/YYYY/MM/DD/README.md
+        year, month, day = path.parts[-4:-1]
         try:
-            digest_date = date.fromisoformat(path.stem)
+            digest_date = date(int(year), int(month), int(day))
         except ValueError:
             continue
         if 0 <= (today - digest_date).days <= exclude_days:
