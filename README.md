@@ -20,7 +20,7 @@ AI・IT・技術記事・日経のニュースを RSS から集め、Claude が�
 ```
 Claude Code の Routine（毎朝 6:50 JST）
   └─ CLAUDE.md の手順に従って実行
-       1. scripts/fetch_feeds.py で RSS を取得（直近30時間・掲載済みを除外）
+       1. scripts/fetch_feeds.py で RSS を取得（前回のダイジェスト以降・掲載済みを除外）
        2. Claude が記事を選び、要約を書く
        3. digests/YYYY/MM/DD/README.md を作成
        4. PR を作成してマージ（main への直接 push は禁止）
@@ -54,7 +54,7 @@ xtech.nikkei.com
 ### 手動で実行する
 
 ```bash
-python3 scripts/fetch_feeds.py              # 直近30時間の記事を JSON で出力
+python3 scripts/fetch_feeds.py              # 前回のダイジェスト以降の記事を JSON で出力
 python3 scripts/fetch_feeds.py --help       # オプション一覧
 ```
 
