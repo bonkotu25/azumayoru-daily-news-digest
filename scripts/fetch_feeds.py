@@ -6,7 +6,10 @@
 
 使い方:
     python3 scripts/fetch_feeds.py > /tmp/feeds.json
-    python3 scripts/fetch_feeds.py --since-hours 48 --exclude-days 7
+    python3 scripts/fetch_feeds.py --since-hours 72
+
+取得範囲は「前回のダイジェストの日付の 0 時（JST）以降」。実行が失敗した日があっても、
+次の実行でその期間の記事を拾える。ダイジェストがまだない場合は直近 30 時間。
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import json
 import re
 import sys
 import tomllib
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
@@ -53,6 +57,14 @@ def clean_text(raw: str | None) -> str:
     if len(text) > SUMMARY_MAX_CHARS:
         text = text[:SUMMARY_MAX_CHARS].rstrip() + "…"
     return text
+
+
+def normalize_link(url: str) -> str:
+    """トラッキング用のクエリ（utm_* など）を取り除く。"""
+    parts = urllib.parse.urlsplit(url.strip())
+    query = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+             if not k.startswith("utm_")]
+    return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
 
 
 def parse_date(raw: str | None) -> datetime | None:
@@ -116,30 +128,50 @@ def parse_feed(data: bytes) -> list[dict]:
     return items
 
 
-def recent_digest_links(exclude_days: int, today: date) -> set[str]:
-    """直近 exclude_days 日分のダイジェストに掲載済みのリンクを集める（重複掲載の防止用）。"""
-    links: set[str] = set()
-    for path in (REPO_ROOT / "digests").glob("*/*/*/README.md"):  # digests/YYYY/MM/DD/README.md
+def list_digests() -> list[tuple[date, Path]]:
+    """既存のダイジェスト（digests/YYYY/MM/DD/README.md）を日付つきで返す。"""
+    digests = []
+    for path in (REPO_ROOT / "digests").glob("*/*/*/README.md"):
         year, month, day = path.parts[-4:-1]
         try:
-            digest_date = date(int(year), int(month), int(day))
+            digests.append((date(int(year), int(month), int(day)), path))
         except ValueError:
             continue
+    return digests
+
+
+def recent_digest_links(digests: list[tuple[date, Path]], exclude_days: int, today: date) -> set[str]:
+    """直近 exclude_days 日分のダイジェストに掲載済みのリンクを集める（重複掲載の防止用）。"""
+    links: set[str] = set()
+    for digest_date, path in digests:
         if 0 <= (today - digest_date).days <= exclude_days:
             links.update(re.findall(r"\]\((https?://[^)\s]+)\)", path.read_text(encoding="utf-8")))
     return links
 
 
+def default_since(digests: list[tuple[date, Path]], now: datetime, max_days: int) -> datetime:
+    """前回のダイジェストの日付の 0 時（JST）。ダイジェストがなければ直近 30 時間。最大 max_days 日前まで。"""
+    past = [d for d, _ in digests if d < now.date()]
+    if not past:
+        return now - timedelta(hours=30)
+    since = datetime.combine(max(past), datetime.min.time(), tzinfo=JST)
+    return max(since, now - timedelta(days=max_days))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--since-hours", type=int, default=30, help="この時間内に公開された記事だけを残す（既定: 30）")
+    parser.add_argument("--since-hours", type=int, help="この時間内に公開された記事だけを残す（既定: 前回のダイジェスト以降）")
     parser.add_argument("--exclude-days", type=int, default=7, help="直近この日数のダイジェストに載った記事を除外（既定: 7）")
     parser.add_argument("--sources", type=Path, default=REPO_ROOT / "sources.toml")
     args = parser.parse_args()
 
     now = datetime.now(JST)
-    since = now - timedelta(hours=args.since_hours)
-    seen = recent_digest_links(args.exclude_days, now.date())
+    digests = list_digests()
+    if args.since_hours is not None:
+        since = now - timedelta(hours=args.since_hours)
+    else:
+        since = default_since(digests, now, args.exclude_days)
+    seen = recent_digest_links(digests, args.exclude_days, now.date())
 
     with args.sources.open("rb") as f:
         config = tomllib.load(f)
@@ -161,7 +193,7 @@ def main() -> int:
                 continue
 
             for entry in entries:
-                link = (entry["link"] or "").strip()
+                link = normalize_link(entry["link"] or "")
                 title = clean_text(entry["title"])
                 if not link or not title or link in seen:
                     continue
