@@ -1,0 +1,66 @@
+# ダイジェストの情報源リスト
+#
+# [[categories]] がダイジェストの見出し（カテゴリ）、
+# その下の [[categories.feeds]] が RSS / Atom フィードです。
+# フィードを増やしたいときは [[categories.feeds]] ブロックを追加してください。
+# 新しいドメインを追加した場合は、実行環境のネットワーク許可リストにも追加が必要です。
+
+[[categories]]
+id = "ai"
+title = "AI"
+max_items = 8
+
+  [[categories.feeds]]
+  name = "ITmedia AI+"
+  url = "https://rss.itmedia.co.jp/rss/2.0/aiplus.xml"
+
+[[categories]]
+id = "it"
+title = "IT"
+max_items = 8
+
+  [[categories.feeds]]
+  name = "ITmedia NEWS"
+  url = "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml"
+
+  [[categories.feeds]]
+  name = "Publickey"
+  url = "https://www.publickey1.jp/atom.xml"
+
+  [[categories.feeds]]
+  name = "はてなブックマーク IT 人気エントリー"
+  url = "https://b.hatena.ne.jp/hotentry/it.rss"
+
+[[categories]]
+id = "tech"
+title = "技術記事（Qiita / Zenn）"
+max_items = 10
+
+  [[categories.feeds]]
+  name = "Qiita 人気記事"
+  url = "https://qiita.com/popular-items/feed.atom"
+
+  [[categories.feeds]]
+  name = "Zenn トレンド"
+  url = "https://zenn.dev/feed"
+
+  [[categories.feeds]]
+  name = "Zenn: AI"
+  url = "https://zenn.dev/topics/ai/feed"
+
+  [[categories.feeds]]
+  name = "Zenn: LLM"
+  url = "https://zenn.dev/topics/llm/feed"
+
+[[categories]]
+id = "nikkei"
+title = "日経"
+max_items = 8
+
+  [[categories.feeds]]
+  name = "日経ビジネス電子版"
+  url = "https://business.nikkei.com/rss/sns/nb.rdf"
+
+  [[categories.feeds]]
+  name = "日経クロステック"
+  url = "https://xtech.nikkei.com/rss/index.rdf"
