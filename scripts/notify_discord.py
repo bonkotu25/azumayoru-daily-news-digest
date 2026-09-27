@@ -18,11 +18,14 @@ import re
 import subprocess
 import sys
 import urllib.request
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DISCORD_MAX_CHARS = 2000
+JST = timezone(timedelta(hours=9))
+FIELD_VALUE_MAX = 1024
+COLOR_SUCCESS = 0x2EA043  # 緑
+COLOR_FAILURE = 0xE5484D  # 赤
 USER_AGENT = "DiscordBot (https://github.com/bonkotu25/azumayoru-daily-news-digest, 1.0)"
 
 
@@ -43,34 +46,79 @@ def digest_path(day: date) -> Path:
     return REPO_ROOT / "digests" / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}" / "README.md"
 
 
-def success_message(day: date) -> str:
-    text = digest_path(day).read_text(encoding="utf-8")
-    count = len(re.findall(r"^### \[", text, flags=re.MULTILINE))
-
+def parse_digest(text: str) -> tuple[list[str], list[tuple[str, int]], datetime | None]:
+    """ダイジェストから、ハイライトの行、カテゴリごとの掲載件数、取得日時を取り出す。"""
     highlights: list[str] = []
-    section = re.search(r"^## 今日のハイライト\n(.*?)(?=^## )", text, flags=re.MULTILINE | re.DOTALL)
-    if section:
-        highlights = [line[2:].strip() for line in section.group(1).splitlines() if line.startswith("- ")]
+    categories: list[tuple[str, int]] = []
+    body, _, footer = text.partition("\n---\n")
+    for section in re.split(r"^## ", body, flags=re.MULTILINE)[1:]:
+        heading, _, content = section.partition("\n")
+        heading = heading.strip()
+        if heading == "今日のハイライト":
+            highlights = [line[2:].strip() for line in content.splitlines() if line.startswith("- ")]
+        else:
+            categories.append((heading, len(re.findall(r"^### \[", content, flags=re.MULTILINE))))
 
-    lines = [f"📰 **{day:%Y-%m-%d} のダイジェスト**を公開しました（{count}件）"]
-    lines += [f"・{h}" for h in highlights]
+    fetched_at = None
+    m = re.search(r"取得: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) JST", footer)
+    if m:
+        fetched_at = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+    return highlights, categories, fetched_at
+
+
+def short_name(heading: str) -> str:
+    """「技術記事（Qiita / Zenn）」→「技術記事」のように、括弧書きを除く。"""
+    return re.sub(r"[（(].*?[）)]", "", heading).strip()
+
+
+def truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def counts_field(categories: list[tuple[str, int]]) -> dict:
+    """カテゴリ別の件数を 1 行にまとめる。
+
+    Discord の横並び項目は 1 行 3 つまでで、スマホでは縦に積まれるため、テキスト 1 行で表す。
+    """
+    value = "　".join(f"**{short_name(name)}** {n}件" for name, n in categories)
+    # 末尾の空行は Discord に削られるので、ゼロ幅スペースの行を足して次の項目との間を空ける
+    return {"name": "掲載件数", "value": value + "\n\u200b", "inline": False}
+
+
+def success_payload(day: date) -> dict:
+    highlights, categories, fetched_at = parse_digest(digest_path(day).read_text(encoding="utf-8"))
+    total = sum(n for _, n in categories)
+    fields = [counts_field(categories)]
+    if highlights:
+        value = "\n".join(f"{i}. {h}" for i, h in enumerate(highlights, 1))
+        fields.append({"name": "今日のハイライト", "value": truncate(value, FIELD_VALUE_MAX), "inline": False})
+
+    embed = {
+        "title": f"[{day:%Y-%m-%d}] ニュースダイジェスト（{total}件）",
+        "color": COLOR_SUCCESS,
+        "fields": fields,
+        "footer": {"text": f"データ取得日: {day:%Y-%m-%d}"},
+    }
+    if fetched_at:
+        embed["timestamp"] = fetched_at.isoformat()  # Discord が閲覧者の時刻表示に合わせて表示する
     url = repo_web_url()
     if url:
-        lines.append(f"{url}/tree/main/digests/{day:%Y}/{day:%m}/{day:%d}")
-    return "\n".join(lines)
+        embed["url"] = f"{url}/tree/main/digests/{day:%Y}/{day:%m}/{day:%d}"
+    return {"embeds": [embed]}
 
 
-def failure_message(day: date, reason: str) -> str:
-    return f"⚠️ **{day:%Y-%m-%d} のダイジェスト**を公開できませんでした\n理由: {reason}"
-
-
-def send(webhook_url: str, content: str) -> None:
-    if len(content) > DISCORD_MAX_CHARS:
-        content = content[: DISCORD_MAX_CHARS - 1] + "…"
-    payload = {
-        "content": content,
-        "allowed_mentions": {"parse": []},  # 本文中の @everyone などでメンションを飛ばさない
+def failure_payload(day: date, reason: str) -> dict:
+    embed = {
+        "title": f"[{day:%Y-%m-%d}] ダイジェストを公開できませんでした",
+        "color": COLOR_FAILURE,
+        "fields": [{"name": "理由", "value": truncate(reason, FIELD_VALUE_MAX), "inline": False}],
+        "timestamp": datetime.now(JST).isoformat(),
     }
+    return {"embeds": [embed]}
+
+
+def send(webhook_url: str, payload: dict) -> None:
+    payload["allowed_mentions"] = {"parse": []}  # 本文中の @everyone などでメンションを飛ばさない
     req = urllib.request.Request(
         webhook_url + ("&" if "?" in webhook_url else "?") + "wait=true",
         data=json.dumps(payload).encode("utf-8"),
@@ -94,12 +142,12 @@ def main() -> int:
         return 0
 
     if args.status == "success":
-        content = success_message(args.date)
+        payload = success_payload(args.date)
     else:
-        content = failure_message(args.date, args.message or "不明")
+        payload = failure_payload(args.date, args.message or "不明")
 
     try:
-        send(webhook_url, content)
+        send(webhook_url, payload)
     except Exception as e:  # URL を含むエラーメッセージを出さないよう、種類だけ表示する
         print(f"Discord への通知に失敗しました: {type(e).__name__} {getattr(e, 'code', '')}", file=sys.stderr)
         return 1
