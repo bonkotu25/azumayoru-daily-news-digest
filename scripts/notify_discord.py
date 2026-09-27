@@ -61,6 +61,11 @@ def parse_digest(text: str) -> tuple[list[str], list[tuple[str, int]]]:
     return highlights, categories
 
 
+def short_name(heading: str) -> str:
+    """「技術記事（Qiita / Zenn）」→「技術記事」のように、括弧書きを除く。"""
+    return re.sub(r"[（(].*?[）)]", "", heading).strip()
+
+
 def success_payload(day: date) -> dict:
     highlights, categories = parse_digest(digest_path(day).read_text(encoding="utf-8"))
     total = sum(n for _, n in categories)
@@ -68,8 +73,8 @@ def success_payload(day: date) -> dict:
         "title": f"📰 {day:%Y-%m-%d} のダイジェスト",
         "color": COLOR_SUCCESS,
         "description": "**今日のハイライト**\n" + "\n".join(f"• {h}" for h in highlights) if highlights else "",
-        "fields": [{"name": name, "value": f"{n} 件", "inline": True} for name, n in categories],
-        "footer": {"text": f"全 {total} 件 ・ タイトルをクリックでダイジェストを開きます"},
+        # Discord は横並びの項目を1行3つまでしか置けず、4カテゴリだと折り返すため1行の文字列にまとめる
+        "footer": {"text": " ・ ".join(f"{short_name(name)} {n}件" for name, n in categories) + f"（全 {total} 件）"},
     }
     url = repo_web_url()
     if url:
