@@ -81,7 +81,8 @@ def counts_field(categories: list[tuple[str, int]]) -> dict:
     Discord の横並び項目は 1 行 3 つまでで、スマホでは縦に積まれるため、テキスト 1 行で表す。
     """
     value = "　".join(f"**{short_name(name)}** {n}件" for name, n in categories)
-    return {"name": "掲載件数", "value": value, "inline": False}
+    # 末尾の空行は Discord に削られるので、ゼロ幅スペースの行を足して次の項目との間を空ける
+    return {"name": "掲載件数", "value": value + "\n\u200b", "inline": False}
 
 
 def success_payload(day: date) -> dict:
