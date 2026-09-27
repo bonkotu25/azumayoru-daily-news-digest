@@ -75,24 +75,19 @@ def truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def count_fields(categories: list[tuple[str, int]]) -> list[dict]:
-    """カテゴリ別の件数を 2 列で並べる。
+def counts_field(categories: list[tuple[str, int]]) -> dict:
+    """カテゴリ別の件数を 1 行にまとめる。
 
-    Discord は横並びの項目を 1 行に最大 3 つ置くので、2 つごとに空の項目を挟んで 2 列にそろえる。
+    Discord の横並び項目は 1 行 3 つまでで、スマホでは縦に積まれるため、テキスト 1 行で表す。
     """
-    spacer = {"name": "\u200b", "value": "\u200b", "inline": True}
-    fields: list[dict] = []
-    for i, (name, n) in enumerate(categories):
-        fields.append({"name": short_name(name), "value": f"{n}件", "inline": True})
-        if i % 2 == 1:
-            fields.append(spacer)
-    return fields
+    value = "　".join(f"**{short_name(name)}** {n}件" for name, n in categories)
+    return {"name": "掲載件数", "value": value, "inline": False}
 
 
 def success_payload(day: date) -> dict:
     highlights, categories, fetched_at = parse_digest(digest_path(day).read_text(encoding="utf-8"))
     total = sum(n for _, n in categories)
-    fields = count_fields(categories)
+    fields = [counts_field(categories)]
     if highlights:
         value = "\n".join(f"{i}. {h}" for i, h in enumerate(highlights, 1))
         fields.append({"name": "今日のハイライト", "value": truncate(value, FIELD_VALUE_MAX), "inline": False})
