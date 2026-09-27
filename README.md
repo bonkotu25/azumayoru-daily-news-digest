@@ -24,6 +24,7 @@ Claude Code の Routine（毎朝 6:50 JST）
        2. Claude が記事を選び、要約を書く
        3. digests/YYYY/MM/DD/README.md を作成
        4. PR を作成してマージ（main への直接 push は禁止）
+       5. Discord に通知（scripts/notify_discord.py）
 ```
 
 - 実行には、リポジトリ所有者の Claude の利用枠を使います。実行スケジュールは Claude 側の設定で、このリポジトリには含まれていません。
@@ -49,7 +50,15 @@ qiita.com
 zenn.dev
 business.nikkei.com
 xtech.nikkei.com
+discord.com
 ```
+
+`discord.com` は Discord への通知に使います。通知を使わない場合は不要です。
+
+### Discord 通知
+
+環境変数 `DISCORD_WEBHOOK_URL` に Discord の Webhook URL を設定すると、公開や失敗の結果が通知されます。
+未設定の場合、通知はスキップされます。Webhook URL は秘密情報なので、リポジトリには書かないでください。
 
 ### 手動で実行する
 
