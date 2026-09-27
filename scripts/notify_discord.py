@@ -22,7 +22,9 @@ from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DISCORD_MAX_CHARS = 2000
+EMBED_DESCRIPTION_MAX = 4096
+COLOR_SUCCESS = 0x3B82F6  # 青
+COLOR_FAILURE = 0xE5484D  # 赤
 USER_AGENT = "DiscordBot (https://github.com/bonkotu25/azumayoru-daily-news-digest, 1.0)"
 
 
@@ -43,34 +45,52 @@ def digest_path(day: date) -> Path:
     return REPO_ROOT / "digests" / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}" / "README.md"
 
 
-def success_message(day: date) -> str:
-    text = digest_path(day).read_text(encoding="utf-8")
-    count = len(re.findall(r"^### \[", text, flags=re.MULTILINE))
-
+def parse_digest(text: str) -> tuple[list[str], list[tuple[str, int]]]:
+    """ダイジェストから、ハイライトの行とカテゴリごとの掲載件数を取り出す。"""
     highlights: list[str] = []
-    section = re.search(r"^## 今日のハイライト\n(.*?)(?=^## )", text, flags=re.MULTILINE | re.DOTALL)
-    if section:
-        highlights = [line[2:].strip() for line in section.group(1).splitlines() if line.startswith("- ")]
+    categories: list[tuple[str, int]] = []
+    # 本文末尾のフッター（---）以降は対象外
+    body = text.split("\n---\n")[0]
+    for section in re.split(r"^## ", body, flags=re.MULTILINE)[1:]:
+        heading, _, content = section.partition("\n")
+        heading = heading.strip()
+        if heading == "今日のハイライト":
+            highlights = [line[2:].strip() for line in content.splitlines() if line.startswith("- ")]
+        else:
+            categories.append((heading, len(re.findall(r"^### \[", content, flags=re.MULTILINE))))
+    return highlights, categories
 
-    lines = [f"📰 **{day:%Y-%m-%d} のダイジェスト**を公開しました（{count}件）"]
-    lines += [f"・{h}" for h in highlights]
+
+def success_payload(day: date) -> dict:
+    highlights, categories = parse_digest(digest_path(day).read_text(encoding="utf-8"))
+    total = sum(n for _, n in categories)
+    embed = {
+        "title": f"📰 {day:%Y-%m-%d} のダイジェスト",
+        "color": COLOR_SUCCESS,
+        "description": "**今日のハイライト**\n" + "\n".join(f"• {h}" for h in highlights) if highlights else "",
+        "fields": [{"name": name, "value": f"{n} 件", "inline": True} for name, n in categories],
+        "footer": {"text": f"全 {total} 件 ・ タイトルをクリックでダイジェストを開きます"},
+    }
     url = repo_web_url()
     if url:
-        lines.append(f"{url}/tree/main/digests/{day:%Y}/{day:%m}/{day:%d}")
-    return "\n".join(lines)
+        embed["url"] = f"{url}/tree/main/digests/{day:%Y}/{day:%m}/{day:%d}"
+    return {"embeds": [embed]}
 
 
-def failure_message(day: date, reason: str) -> str:
-    return f"⚠️ **{day:%Y-%m-%d} のダイジェスト**を公開できませんでした\n理由: {reason}"
-
-
-def send(webhook_url: str, content: str) -> None:
-    if len(content) > DISCORD_MAX_CHARS:
-        content = content[: DISCORD_MAX_CHARS - 1] + "…"
-    payload = {
-        "content": content,
-        "allowed_mentions": {"parse": []},  # 本文中の @everyone などでメンションを飛ばさない
+def failure_payload(day: date, reason: str) -> dict:
+    embed = {
+        "title": f"⚠️ {day:%Y-%m-%d} のダイジェストを公開できませんでした",
+        "color": COLOR_FAILURE,
+        "description": f"**理由**\n{reason}",
     }
+    return {"embeds": [embed]}
+
+
+def send(webhook_url: str, payload: dict) -> None:
+    for embed in payload.get("embeds", []):
+        if len(embed.get("description", "")) > EMBED_DESCRIPTION_MAX:
+            embed["description"] = embed["description"][: EMBED_DESCRIPTION_MAX - 1] + "…"
+    payload["allowed_mentions"] = {"parse": []}  # 本文中の @everyone などでメンションを飛ばさない
     req = urllib.request.Request(
         webhook_url + ("&" if "?" in webhook_url else "?") + "wait=true",
         data=json.dumps(payload).encode("utf-8"),
@@ -94,12 +114,12 @@ def main() -> int:
         return 0
 
     if args.status == "success":
-        content = success_message(args.date)
+        payload = success_payload(args.date)
     else:
-        content = failure_message(args.date, args.message or "不明")
+        payload = failure_payload(args.date, args.message or "不明")
 
     try:
-        send(webhook_url, content)
+        send(webhook_url, payload)
     except Exception as e:  # URL を含むエラーメッセージを出さないよう、種類だけ表示する
         print(f"Discord への通知に失敗しました: {type(e).__name__} {getattr(e, 'code', '')}", file=sys.stderr)
         return 1
